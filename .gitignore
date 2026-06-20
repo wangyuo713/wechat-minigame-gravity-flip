@@ -12,3 +12,6 @@ $RECYCLE.BIN/
 
 # Node.js
 node_modules/
+
+# WeChat DevTools 本地私有配置
+project.private.config.json
