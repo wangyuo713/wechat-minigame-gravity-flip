@@ -1,5 +1,5 @@
 // ============================================================
-// 《重力翻转者 Flip》 — 微信小游戏
+// 《重力翻转者》 — 微信小游戏
 // 玩法：方块自动奔跑，点击屏幕翻转重力，躲开上下两侧的障碍。
 // 操作：触摸屏幕任意位置 = 翻转重力 / 开始 / 重来
 // ============================================================
@@ -71,6 +71,7 @@ let speed = 4.2
 let distSinceSpawn = 0
 let nextGap = 300
 let score = 0
+let canRevive = true // 本局是否还能「看广告复活」
 let best = 0
 try { best = wx.getStorageSync('flip_best') || 0 } catch (e) {}
 
@@ -98,12 +99,14 @@ function resetGame() {
   distSinceSpawn = 0
   nextGap = 280
   score = 0
+  canRevive = true
   frame = 0
 }
 
 function startGame() {
   resetGame()
   state = 'playing'
+  hideBanner()
 }
 
 function flip() {
@@ -111,11 +114,114 @@ function flip() {
   if (wx.vibrateShort) wx.vibrateShort({ type: 'light' })
 }
 
+// ============================================================
+// 广告：激励视频（看广告复活） + Banner（标题页/结束页底部）
+// ⚠️ 上架后在微信公众平台「流量主 → 广告位管理」里创建广告位，
+//    把对应的广告位 ID 填到下面这两个常量里。
+//    留空时不会创建广告，测试号 / 真机预览仍可正常游玩。
+// ============================================================
+const AD_UNIT = {
+  rewardedVideo: '', // 激励视频广告位 ID，例如 'adunit-xxxxxxxxxxxxxxxx'
+  banner: '',        // Banner 广告位 ID，例如 'adunit-xxxxxxxxxxxxxxxx'
+}
+
+// ---- 激励视频 ----
+let rewardedAd = null
+if (wx.createRewardedVideoAd && AD_UNIT.rewardedVideo) {
+  rewardedAd = wx.createRewardedVideoAd({ adUnitId: AD_UNIT.rewardedVideo })
+  rewardedAd.onClose(res => {
+    if (res && res.isEnded) doRevive() // 看完整支广告才复活
+  })
+  rewardedAd.onError(() => {})
+}
+
+function showReviveAd() {
+  if (!rewardedAd) return
+  rewardedAd.show().catch(() =>
+    rewardedAd.load().then(() => rewardedAd.show()).catch(() => {})
+  )
+}
+
+function doRevive() {
+  // 清掉玩家前方的障碍，给重生留出安全空间
+  obstacles = obstacles.filter(o => o.x > player.x + 220)
+  player.y = (PLAY_TOP + PLAY_BOTTOM) / 2 - player.size / 2
+  player.vy = 0
+  player.dir = 1
+  particles = []
+  flash = 0
+  shake = 0
+  canRevive = false // 每局只能复活一次
+  state = 'playing'
+  hideBanner()
+}
+
+// ---- Banner ----
+let bannerAd = null
+if (wx.createBannerAd && AD_UNIT.banner) {
+  bannerAd = wx.createBannerAd({
+    adUnitId: AD_UNIT.banner,
+    adIntervals: 30,
+    style: { left: 0, top: 0, width: Math.min(W, 360) },
+  })
+  bannerAd.onResize(res => {
+    bannerAd.style.left = (W - res.width) / 2
+    bannerAd.style.top = H - res.height - 6
+  })
+  bannerAd.onError(() => {})
+}
+function showBanner() { if (bannerAd) bannerAd.show().catch(() => {}) }
+function hideBanner() { if (bannerAd) bannerAd.hide().catch(() => {}) }
+showBanner() // 启动即处于标题页，展示 Banner
+
+// ---- 分享 ----
+const SHARE_IMG = 'share.png'
+function shareTitle() {
+  return score > 0
+    ? `我在「重力翻转者」飞了 ${score} 分，敢来挑战吗？`
+    : '点击翻转重力，躲开霓虹障碍，看你能飞多远！'
+}
+function doShare() {
+  if (wx.shareAppMessage) wx.shareAppMessage({ title: shareTitle(), imageUrl: SHARE_IMG })
+}
+if (wx.onShareAppMessage) {
+  wx.onShareAppMessage(() => ({ title: shareTitle(), imageUrl: SHARE_IMG }))
+}
+if (wx.showShareMenu) {
+  wx.showShareMenu({ withShareTicket: false, menus: ['shareAppMessage', 'shareTimeline'] })
+}
+
+// ---- 结束页按钮（垂直堆叠：看广告复活 / 分享给好友）----
+function overButtons() {
+  const w = 220, h = 52, gap = 14
+  const kinds = []
+  if (canRevive && rewardedAd) kinds.push('revive')
+  kinds.push('share')
+  const y0 = H / 2 + 54
+  return kinds.map((kind, i) => ({
+    kind, x: (W - w) / 2, y: y0 + i * (h + gap), w, h,
+  }))
+}
+function hitButton(x, y) {
+  for (const b of overButtons()) {
+    if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) return b.kind
+  }
+  return null
+}
+
 // ---------- 输入 ----------
-wx.onTouchStart(() => {
+wx.onTouchStart((e) => {
+  const t = (e && e.touches && e.touches[0]) || (e && e.changedTouches && e.changedTouches[0])
+  const x = t ? t.clientX : 0
+  const y = t ? t.clientY : 0
   if (state === 'ready') startGame()
   else if (state === 'playing') flip()
-  else if (state === 'over' && frame - overFrame > 18) startGame()
+  else if (state === 'over' && frame - overFrame > 18) {
+    const kind = hitButton(x, y)
+    if (kind === 'revive') showReviveAd()
+    else if (kind === 'share') doShare()
+    else startGame()
+  }
 })
 
 // ---------- 障碍生成 ----------
@@ -155,6 +261,7 @@ function gameOver() {
   explode(player.x + player.size / 2, player.y + player.size / 2)
   state = 'over'
   overFrame = frame
+  showBanner()
   if (score > best) {
     best = score
     try { wx.setStorageSync('flip_best', best) } catch (e) {}
@@ -358,7 +465,7 @@ function drawReady() {
   ctx.shadowBlur = 24
   drawText('重力翻转者', W / 2, H / 2 - 64, 42, C.text, 'bold')
   ctx.restore()
-  drawText('F L I P', W / 2, H / 2 - 22, 18, C.player, 'bold')
+  drawText('翻 转 重 力', W / 2, H / 2 - 22, 18, C.player, 'bold')
   drawText('点击屏幕翻转重力，躲开障碍', W / 2, H / 2 + 38, 16, C.sub)
 
   const pulse = 0.55 + 0.45 * Math.sin(frame * 0.08)
@@ -372,17 +479,47 @@ function drawReady() {
 function drawOver() {
   ctx.fillStyle = 'rgba(10,10,24,0.74)'
   ctx.fillRect(0, 0, W, H)
-  drawText('结 束', W / 2, H / 2 - 78, 30, C.obstacle, 'bold')
+  drawText('结 束', W / 2, H / 2 - 92, 30, C.obstacle, 'bold')
   ctx.save()
   ctx.shadowColor = C.playerGlow
   ctx.shadowBlur = 20
-  drawText(score, W / 2, H / 2 - 6, 70, C.text, 'bold')
+  drawText(score, W / 2, H / 2 - 22, 70, C.text, 'bold')
   ctx.restore()
-  drawText(`最高分  ${best}`, W / 2, H / 2 + 52, 16, C.sub)
+  drawText(`最高分  ${best}`, W / 2, H / 2 + 34, 16, C.sub)
+
   if (frame - overFrame > 18) {
+    const btns = overButtons()
+    btns.forEach(b => {
+      const primary = b.kind === 'revive'
+      ctx.save()
+      ctx.shadowColor = primary ? C.playerGlow : C.obstacleGlow
+      ctx.shadowBlur = 16
+      if (primary) {
+        const g = ctx.createLinearGradient(b.x, b.y, b.x, b.y + b.h)
+        g.addColorStop(0, C.playerLight)
+        g.addColorStop(1, C.player)
+        ctx.fillStyle = g
+        roundRect(b.x, b.y, b.w, b.h, 14)
+        ctx.fill()
+      } else {
+        // 分享按钮：描边胶囊
+        ctx.fillStyle = 'rgba(255,61,139,0.16)'
+        roundRect(b.x, b.y, b.w, b.h, 14)
+        ctx.fill()
+        ctx.lineWidth = 2
+        ctx.strokeStyle = C.obstacle
+        roundRect(b.x, b.y, b.w, b.h, 14)
+        ctx.stroke()
+      }
+      ctx.restore()
+      const label = primary ? '▶  看广告复活' : '↗  分享给好友'
+      drawText(label, W / 2, b.y + b.h / 2, 18, primary ? '#0a0a1f' : C.text, 'bold')
+    })
+
+    const last = btns[btns.length - 1]
     const pulse = 0.55 + 0.45 * Math.sin(frame * 0.08)
     ctx.globalAlpha = pulse
-    drawText('点击屏幕再来一局', W / 2, H / 2 + 104, 18, C.text, 'bold')
+    drawText('点击其它位置 · 再来一局', W / 2, last.y + last.h + 28, 15, C.sub)
     ctx.globalAlpha = 1
   }
 }
