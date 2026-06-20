@@ -9,6 +9,9 @@ $RECYCLE.BIN/
 .Spotlight-V100
 .TemporaryItems
 .Trashes
+# macOS 解压/归档残留（曾导致抖音工具编译 ._game.js 报错）
+__MACOSX/
+._*
 
 # Node.js
 node_modules/

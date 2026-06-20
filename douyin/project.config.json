@@ -1,0 +1,15 @@
+{
+    "setting": {
+        "urlCheck": true,
+        "es6": true,
+        "postcss": true,
+        "minified": false,
+        "newFeature": true,
+        "autoCompile": true,
+        "compileHotReLoad": true,
+        "nativeCompile": true
+    },
+    "appid": "tt5b112dacc57553fa02",
+    "projectname": "重力翻转者",
+    "douyinProjectType": "native"
+}

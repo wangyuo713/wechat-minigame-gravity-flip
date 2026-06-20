@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 # 生成《重力翻转者》小程序头像：霓虹青发光方块 + 上下双向箭头（重力翻转）
 # 纯标准库（zlib/struct），4x 超采样后缩放到 144x144 抗锯齿，输出 PNG。
-import math, zlib, struct, os
+import math, zlib, struct, os, sys
 
-SS = 4            # 超采样倍数
-OUT = 144         # 最终尺寸
-S = OUT * SS      # 渲染尺寸 = 576
+OUT = int(sys.argv[1]) if len(sys.argv) > 1 else 144  # 最终尺寸，命令行可指定
+SS = 4 if OUT <= 200 else 2                            # 超采样倍数（大图降倍，控制耗时）
+S = OUT * SS                                           # 渲染尺寸
 
 def lerp(a, b, t): return a + (b - a) * t
 def mix(c1, c2, t): return tuple(lerp(c1[i], c2[i], t) for i in range(3))
@@ -115,7 +115,7 @@ png = (b"\x89PNG\r\n\x1a\n" +
        chunk(b"IDAT", zlib.compress(bytes(raw), 9)) +
        chunk(b"IEND", b""))
 
-path = os.path.join(os.path.dirname(__file__), "..", "icon-144.png")
+path = os.path.join(os.path.dirname(__file__), "..", "icon-%d.png" % OUT)
 path = os.path.abspath(path)
 with open(path, "wb") as f:
     f.write(png)
